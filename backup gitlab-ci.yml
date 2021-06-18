@@ -1,0 +1,145 @@
+stages:
+  - build
+  - test
+  - containerize-dev
+  - containerize-prod
+  - deploy-dev
+  - deploy-prod
+
+build-job:
+  stage: build
+  image: ubuntu:latest
+  script:
+    - echo "Hello, $GITLAB_USER_LOGIN!"
+
+test-suite-1:
+  stage: test
+  image: usemtech/nodejs-mocha
+  script:
+    - echo "Runs the Mocha unit tests"
+    - cd ./webapp/api && npm install chai
+    - npm test
+
+containerize-api-dev:
+  stage: containerize-dev
+  image: docker:19.03.1
+  services:
+    - docker:19.03.1-dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+    
+  only:
+    refs:
+      - develop
+      - db-service
+  script: 
+    - docker info
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Build docker images
+    - docker build --build-arg NODE=develop -t gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api:latest ./webapp/api
+
+    # Push the container images to the registry
+    - docker push gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api:latest
+
+    #  Cleanup by removing the local images
+    #- docker image rm gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api
+    #- docker image rm gitlab.lnu.se:5050/ro222fd/2dv611-grp3/client
+
+containerize-client-dev:
+  stage: containerize-dev
+  image: docker:19.03.1
+  services:
+    - docker:19.03.1-dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  only:
+    refs:
+      - develop
+      - db-service
+  script: 
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Build docker images
+    - docker build --build-arg REACT_APP_API_ADDRESS=http://194.47.176.236:4000 -t gitlab.lnu.se:5050/ro222fd/2dv611-grp3/client:latest ./webapp/client 
+
+    # Push the container images to the registry
+    - docker push gitlab.lnu.se:5050/ro222fd/2dv611-grp3/client:latest
+
+containerize-prod:
+  stage: containerize-prod
+  image: docker:19.03.1
+  services:
+    - docker:19.03.1-dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+
+  only:
+    refs:
+      - master
+  script: 
+    - docker info
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Build docker images
+    - docker build --build-arg NODE=production --build-arg start="start" -t gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api:stable ./webapp/api
+    - docker build --build-arg REACT_APP_API_ADDRESS=http://194.47.177.75:4000 -t gitlab.lnu.se:5050/ro222fd/2dv611-grp3/client:stable ./webapp/client
+
+    # Push the container images to the registry
+    - docker push gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api:stable
+    - docker push gitlab.lnu.se:5050/ro222fd/2dv611-grp3/client:stable
+
+deploy-dev:
+  stage: deploy-dev
+  image: ubuntu:latest
+  only:
+    refs:
+      - develop
+      - db-service
+  script:
+    - apt update
+    - apt install docker.io -y
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Create/update the kubernetes resourcesi
+    - apt install -y apt-transport-https gnupg2 curl -y
+    - curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+    - echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list
+    - apt update
+    - apt-get install -y kubectl
+    - kubectl apply -f kubernetes_manifest_dev_api.yml
+    - kubectl apply -f kubernetes_manifest_dev_client.yml
+    - kubectl apply -f kubernetes_manifest_dev_db.yml
+
+    ## Restart the deployment so as to pull the latest version of the container image
+    - kubectl rollout restart deployment/webapp-api
+    - kubectl rollout restart deployment/webapp-client
+    - kubectl rollout restart deployment/webapp-sqldb
+  environment:
+    name: develop
+
+deploy-prod:
+  stage: deploy-prod
+  image: ubuntu:latest
+  only:
+    refs:
+      - master
+  script:
+    - apt update
+    - apt install docker.io -y
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Create/update the kubernetes resourcesi
+    - apt install -y apt-transport-https gnupg2 curl -y
+    - curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+    - echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list
+    - apt update
+    - apt-get install -y kubectl
+    - kubectl apply -f kubernetes_manifest_prod.yml
+
+    ## Restart the deployment so as to pull the latest version of the container image
+    - kubectl rollout restart deployment/webapp-api
+    - kubectl rollout restart deployment/webapp-client
+  environment:
+    name: production

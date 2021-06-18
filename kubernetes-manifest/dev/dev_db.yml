@@ -1,0 +1,80 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sql-config
+data:
+  init.sql: |
+    GRANT ALL PRIVILEGES ON app.* TO 'mariadb'@'%' WITH GRANT OPTION;
+    CREATE SCHEMA IF NOT EXISTS `app` DEFAULT CHARACTER SET utf8 ;
+    USE `app` ;
+
+    CREATE TABLE IF NOT EXISTS `app`.`Content` (
+      `id` INT NOT NULL,
+      `string` VARCHAR(50) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    INSERT INTO Content (id, string) VALUES
+    (1, '1: Hej allihopa!'), 
+    (2, '2: Hello everyone!'),
+    (3, '3: Hola a todos!'),
+    (4, '4: Hallo, alle miteinander!'),
+    (5, '5: Ciao a tutti!'),
+    (6, '6: Hei kaikki!'),
+    (7, '7: Hej allesammen!'),
+    (8, '8: Bonjour a tous!'),
+    (9, '9: Omnis salve!'),
+    (10, '10: Bonjou tout moun!');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-sqldb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webapp-sqldb
+  template:
+    metadata:
+      labels:
+        app: webapp-sqldb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:latest
+          volumeMounts:
+            - name: sql-init-vol
+              mountPath: /docker-entrypoint-initdb.d/
+          env:
+            - name: MYSQL_DATABASE
+              value: app
+            - name: MYSQL_USER
+              value: "mariadb"
+            - name: MYSQL_PASSWORD
+              value: "password123"
+            - name: MYSQL_ROOT_PASSWORD
+              value: "123password"
+          ports:
+          - containerPort: 3306
+      volumes:
+        - name: sql-init-vol
+          configMap:
+            name: sql-config
+            items:
+              - key: init.sql
+                path: init.sql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqldb-svc
+spec:
+  selector:
+    app: webapp-sqldb
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3306
+      nodePort: 31330
+  type: NodePort

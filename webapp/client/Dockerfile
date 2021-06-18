@@ -1,0 +1,17 @@
+FROM node:14-alpine
+
+WORKDIR /usr/src/app
+
+COPY . ./
+
+ARG NODE_ENV=develop
+ARG REACT_APP_API_ADDRESS=http://localhost:4000
+
+ENV NODE_ENV $NODE_ENV
+ENV REACT_APP_API_ADDRESS $REACT_APP_API_ADDRESS
+
+RUN npm install
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

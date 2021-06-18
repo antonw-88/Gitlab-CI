@@ -1,0 +1,35 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp-api
+  template:
+    metadata:
+      labels:
+        app: webapp-api
+    spec:
+      containers:
+      - name: api
+        image: gitlab.lnu.se:5050/ro222fd/2dv611-grp3/api:stable
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 4000
+      imagePullSecrets:
+      - name: gitlab-pull-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-rest-api
+spec:
+  selector:
+    app: webapp-api
+  ports:
+  - port: 4000
+    nodePort: 31400
+  type: NodePort
